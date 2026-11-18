@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام إدارة وصرف الوقود</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font: Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel Export (primary: cdnjs, fallback: jsdelivr) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        if (typeof XLSX === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        cairo: ['Cairo', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Cairo', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <div class="bg-brand-600 text-white p-2.5 rounded-xl shadow-md">
+                    <i class="fa-solid fa-gas-pump text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-gray-900 leading-tight">نظام إدارة وصرف الوقود</h1>
+                    <p class="text-xs text-gray-500">لوحة التحكم السحابية والمرتبطة بـ Firebase</p>
+                </div>
+            </div>
+
+            <!-- Navigation Tabs -->
+            <nav class="flex items-center space-x-2 space-x-reverse">
+                <button id="tab-data-entry" onclick="switchTab('data-entry')" class="px-4 py-2 rounded-xl text-sm font-bold bg-brand-600 text-white transition flex items-center">
+                    <i class="fa-solid fa-pen-to-square ml-2"></i>
+                    إدخال البيانات والسجل
+                </button>
+                <button id="tab-admin" onclick="switchTab('admin')" class="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition flex items-center">
+                    <i class="fa-solid fa-user-shield ml-2"></i>
+                    الإدارة والمستخدمين
+                </button>
+            </nav>
+
+            <!-- User & Sync Status -->
+            <div class="hidden md:flex items-center space-x-3 space-x-reverse">
+                <div id="user-badge" class="text-xs font-bold px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 flex items-center">
+                    <i class="fa-solid fa-user ml-1.5 text-brand-600"></i>
+                    <span id="current-user-email">غير مسجل الدخول</span>
+                </div>
+                <div id="sync-status" class="flex items-center text-xs font-medium px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block ml-1.5 animate-pulse"></span>
+                    متصل
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- View 1: Data Entry & Records -->
+    <main id="view-data-entry" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Form Section -->
+        <div class="lg:col-span-1">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 sticky top-24">
+                <div class="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                    <h2 class="text-base font-bold text-gray-900 flex items-center">
+                        <i class="fa-solid fa-circle-plus text-brand-600 ml-2"></i>
+                        تسجيل عملية صرف جديدة
+                    </h2>
+                    <span class="text-xs bg-brand-50 text-brand-700 font-semibold px-2.5 py-1 rounded-lg">إدخال بيانات</span>
+                </div>
+
+                <!-- Login Prompt Banner -->
+                <div id="login-warning-banner" class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    <p class="font-bold mb-1"><i class="fa-solid fa-lock ml-1"></i>يرجى تسجيل الدخول للإدخال</p>
+                    <p>سجل الدخول من تبويب <strong>"الإدارة والمستخدمين"</strong> لتتمكن من حفظ البيانات.</p>
+                </div>
+
+                <form id="fuel-form" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">رقم اللوحة</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-car"></i>
+                            </span>
+                            <input type="text" id="plateNumber" required placeholder="أدخل رقم اللوحة (مثال: أ ب ج 1234)" 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">تاريخ الصرف</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-calendar"></i>
+                            </span>
+                            <input type="date" id="dispenseDate" required 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">كمية الصرف (باللتر)</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-droplet"></i>
+                            </span>
+                            <input type="number" step="0.01" min="0" id="quantityLiters" required placeholder="0.00" 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">كود المحطة</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-building"></i>
+                            </span>
+                            <input type="text" id="stationCode" required placeholder="أدخل كود المحطة" 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">الهندسة التابع لها</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-sitemap"></i>
+                            </span>
+                            <input type="text" id="engineeringDept" required placeholder="أدخل اسم الهندسة" 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">اسم السائق</label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                                <i class="fa-solid fa-user-tie"></i>
+                            </span>
+                            <input type="text" id="driverName" required placeholder="أدخل اسم السائق بالكامل" 
+                                class="w-full pr-10 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <!-- Explicit Save Button -->
+                    <div class="pt-2">
+                        <button type="submit" id="submit-btn" 
+                            class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-brand-500/30 transition flex items-center justify-center space-x-2 space-x-reverse text-base">
+                            <i class="fa-solid fa-floppy-disk ml-2"></i>
+                            <span>حفظ البيانات في السجل</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Data Display & Excel Export Section -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Stats / Summary Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase">إجمالي عمليات الصرف</p>
+                        <h3 id="total-records" class="text-2xl font-black text-gray-900 mt-1">0</h3>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fa-solid fa-clipboard-list"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase">إجمالي الكميات (لتر)</p>
+                        <h3 id="total-liters" class="text-2xl font-black text-gray-900 mt-1">0.00</h3>
+                    </div>
+                    <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fa-solid fa-gas-pump"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table & Actions Container -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-gray-900">سجل عمليات الصرف المسجلة</h3>
+                        <p class="text-xs text-gray-500">عرض كافة البيانات المدخلة مع إمكانية التصدير الفوري</p>
+                    </div>
+                    <button type="button" id="export-excel-btn" onclick="exportToExcel()"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-5 rounded-xl shadow-md shadow-emerald-500/20 transition flex items-center space-x-2 space-x-reverse text-sm">
+                        <i class="fa-solid fa-file-excel text-base ml-2"></i>
+                        <span>تصدير إلى Excel (.xlsx)</span>
+                    </button>
+                </div>
+
+                <!-- Search Filter Bar -->
+                <div class="p-4 bg-gray-50 border-b border-gray-200 flex items-center">
+                    <div class="relative w-full">
+                        <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </span>
+                        <input type="text" id="search-input" placeholder="بحث برقم اللوحة، كود المحطة، أو اسم السائق..." 
+                            class="w-full pr-10 pl-4 py-2 text-sm bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-none transition">
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
+                                <th class="py-3 px-4">رقم اللوحة</th>
+                                <th class="py-3 px-4">تاريخ الصرف</th>
+                                <th class="py-3 px-4">الكمية (لتر)</th>
+                                <th class="py-3 px-4">كود المحطة</th>
+                                <th class="py-3 px-4">الهندسة</th>
+                                <th class="py-3 px-4">اسم السائق</th>
+                                <th class="py-3 px-4">بواسطة</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fuel-table-body" class="divide-y divide-gray-100 text-sm text-gray-700">
+                            <!-- Dynamic Rows Here -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Empty State -->
+                <div id="empty-state" class="hidden p-12 text-center">
+                    <div class="w-16 h-16 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl">
+                        <i class="fa-solid fa-folder-open"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-600">لا توجد سجلات مسجلة حتى الآن</p>
+                    <p class="text-xs text-gray-400 mt-1">قم بإدخال بيانات الصرف من القائمة الجانبية واضغط على "حفظ البيانات"</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- View 2: Admin & User Management -->
+    <main id="view-admin" class="hidden max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+        
+        <!-- Login Card (Shown when not logged in) -->
+        <div id="auth-login-section" class="max-w-md mx-auto bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div class="text-center mb-6">
+                <div class="w-14 h-14 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-3 text-2xl">
+                    <i class="fa-solid fa-user-lock"></i>
+                </div>
+                <h2 class="text-xl font-bold text-gray-900">تسجيل الدخول للنظام</h2>
+                <p class="text-xs text-gray-500 mt-1">سجل الدخول بحساب الأدمن لإدارة المستخدمين، أو بحساب مستخدم لإدخال البيانات</p>
+            </div>
+
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">البريد الإلكتروني</label>
+                    <input type="email" id="login-email" required placeholder="drsafaa249@gmail.com" 
+                        class="w-full px-4 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">كلمة المرور</label>
+                    <input type="password" id="login-password" required placeholder="••••••••" 
+                        class="w-full px-4 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white focus:outline-none">
+                </div>
+                <button type="submit" id="login-btn" 
+                    class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition">
+                    دخول
+                </button>
+            </form>
+        </div>
+
+        <!-- Logged-in Dashboard (Admin vs Regular User) -->
+        <div id="auth-dashboard-section" class="hidden space-y-6">
+            <!-- Profile Bar -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center space-x-4 space-x-reverse">
+                    <div id="role-icon-box" class="w-12 h-12 bg-brand-100 text-brand-600 rounded-xl flex items-center justify-center text-xl">
+                        <i class="fa-solid fa-user-shield"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2 space-x-reverse">
+                            <h3 id="profile-email" class="text-base font-bold text-gray-900">drsafaa249@gmail.com</h3>
+                            <span id="profile-role-badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700">مدير النظام (Admin)</span>
+                        </div>
+                        <p id="profile-desc" class="text-xs text-gray-500 mt-0.5">لديك صلاحية كاملة لإضافة وإدارة مستخدمي إدخال البيانات.</p>
+                    </div>
+                </div>
+                <button id="logout-btn" class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-4 rounded-xl text-xs transition flex items-center">
+                    <i class="fa-solid fa-right-from-bracket ml-1.5"></i>
+                    تسجيل الخروج
+                </button>
+            </div>
+
+            <!-- Admin Exclusive Panel: Add New Data Entry Users -->
+            <div id="admin-only-panel" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Add User Form -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-base font-bold text-gray-900 mb-1 flex items-center">
+                        <i class="fa-solid fa-user-plus text-brand-600 ml-2"></i>
+                        إضافة مستخدم جديد لإدخال البيانات
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-5">سيتمكن هذا المستخدم من تسجيل الدخول وإدخال بيانات الوقود فقط.</p>
+
+                    <form id="create-user-form" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">اسم الموظف / المستخدم</label>
+                            <input type="text" id="new-user-name" required placeholder="مثال: أحمد محمود" 
+                                class="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">البريد الإلكتروني للمستخدم</label>
+                            <input type="email" id="new-user-email" required placeholder="user@example.com" 
+                                class="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">كلمة المرور (4 أحرف أو أرقام على الأقل)</label>
+                            <input type="password" id="new-user-password" required minlength="4" placeholder="••••••••" 
+                                class="w-full px-3 py-2.5 text-sm bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                        </div>
+                        <button type="submit" id="create-user-btn" 
+                            class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-4 rounded-xl shadow-md transition flex items-center justify-center">
+                            <i class="fa-solid fa-plus ml-2"></i>
+                            إنشاء حساب المستخدم
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Registered Users List -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-base font-bold text-gray-900 mb-1 flex items-center">
+                        <i class="fa-solid fa-users text-emerald-600 ml-2"></i>
+                        المستخدمون المعتمدون
+                    </h3>
+                    <p class="text-xs text-gray-500 mb-5">قائمة المستخدمين المصرح لهم بإدخال البيانات.</p>
+
+                    <div id="users-list-container" class="space-y-3 max-h-80 overflow-y-auto">
+                        <!-- Dynamic User Cards -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Non-Admin Notice -->
+            <div id="non-admin-panel" class="hidden bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
+                <i class="fa-solid fa-lock text-amber-500 text-3xl mb-2"></i>
+                <h4 class="text-base font-bold text-amber-900">صلاحيات محدودة (مستخدم إدخال بيانات)</h4>
+                <p class="text-xs text-amber-700 mt-1">هذا الحساب مخصص لإدخال بيانات الوقود فقط. إضافة أو حذف المستخدمين متاح حصرياً لحساب الأدمن الرئيسي.</p>
+                <button onclick="switchTab('data-entry')" class="mt-4 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2 px-5 rounded-xl transition">
+                    الذهاب لصفحة إدخال البيانات
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-5 left-5 transform translate-y-20 opacity-0 transition-all duration-300 z-50 bg-gray-900 text-white px-5 py-3 rounded-xl shadow-xl flex items-center space-x-3 space-x-reverse text-sm">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+        <span id="toast-message">تمت العملية بنجاح</span>
+    </div>
+
+    <!-- ==========================================
+         Excel Export (classic script: independent of Firebase loading)
+         ========================================== -->
+    <script>
+        window.__allRecords = window.__allRecords || [];
+
+        function exportToast(message, type) {
+            if (typeof window.showToast === 'function') {
+                window.showToast(message, type || 'success');
+            } else {
+                alert(message);
+            }
+        }
+
+        function downloadBlob(blob, fileName) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 500);
+        }
+
+        window.exportToExcel = function () {
+            try {
+                // Use in-memory records; fall back to locally saved records
+                let records = Array.isArray(window.__allRecords) ? window.__allRecords : [];
+                if (records.length === 0) {
+                    try {
+                        records = JSON.parse(localStorage.getItem('fuel_records_db') || '[]');
+                    } catch (e) { records = []; }
+                }
+
+                if (!records || records.length === 0) {
+                    exportToast('لا توجد بيانات لتصديرها', 'error');
+                    return;
+                }
+
+                const rows = records.map(rec => ({
+                    "رقم اللوحة": rec.plateNumber || "",
+                    "تاريخ الصرف": rec.dispenseDate || "",
+                    "كمية الصرف (لتر)": Number(rec.quantityLiters || 0),
+                    "كود المحطة": rec.stationCode || "",
+                    "الهندسة التابع لها": rec.engineeringDept || "",
+                    "اسم السائق": rec.driverName || "",
+                    "تم الإدخال بواسطة": rec.enteredBy || "-"
+                }));
+
+                const dateStr = new Date().toISOString().split('T')[0];
+
+                if (typeof XLSX !== 'undefined') {
+                    const worksheet = XLSX.utils.json_to_sheet(rows);
+                    worksheet['!cols'] = [
+                        { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 34 }
+                    ];
+                    const workbook = XLSX.utils.book_new();
+                    workbook.Workbook = { Views: [{ RTL: true }] };
+                    XLSX.utils.book_append_sheet(workbook, worksheet, "سجل الوقود");
+
+                    // Write to array buffer and download via Blob (works reliably across browsers)
+                    const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+                    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    downloadBlob(blob, `Fuel_Records_${dateStr}.xlsx`);
+                    exportToast('تم تحميل ملف Excel بنجاح!');
+                } else {
+                    // Fallback: CSV (opens in Excel) if the SheetJS library could not be loaded
+                    const headers = Object.keys(rows[0]);
+                    const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+                    const csv = [headers.map(esc).join(',')]
+                        .concat(rows.map(r => headers.map(h => esc(r[h])).join(',')))
+                        .join('\r\n');
+                    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                    downloadBlob(blob, `Fuel_Records_${dateStr}.csv`);
+                    exportToast('تعذر تحميل مكتبة Excel، تم التصدير بصيغة CSV يمكن فتحها في Excel', 'error');
+                }
+            } catch (err) {
+                console.error('Export error:', err);
+                exportToast('حدث خطأ أثناء التصدير', 'error');
+            }
+        };
+    </script>
+
+    <!-- Firebase SDK & App Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, setDoc, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // ==========================================
+        // بيانات الأدمن الرئيسي الوحيد
+        // ==========================================
+        const ADMIN_EMAIL = "drsafaa249@gmail.com";
+        const ADMIN_PASS = "1234";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCq0E1YMtj5EpxavmD7HcE_sPs9_b6qAWY",
+            authDomain: "datasafaa-b8ed3.firebaseapp.com",
+            projectId: "datasafaa-b8ed3",
+            storageBucket: "datasafaa-b8ed3.firebasestorage.app",
+            messagingSenderId: "1058447772798",
+            appId: "1:1058447772798:web:781b5a561e1200b5b69c2f",
+            measurementId: "G-HL0E3QLEHR"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let fuelRecords = [];
+        let authorizedUsers = [];
+        let currentUser = JSON.parse(localStorage.getItem('fuel_active_user') || 'null');
+
+        // Tab Switching Logic
+        window.switchTab = function(tabName) {
+            const viewData = document.getElementById('view-data-entry');
+            const viewAdmin = document.getElementById('view-admin');
+            const tabData = document.getElementById('tab-data-entry');
+            const tabAdmin = document.getElementById('tab-admin');
+
+            if (tabName === 'data-entry') {
+                viewData.classList.remove('hidden');
+                viewAdmin.classList.add('hidden');
+                tabData.className = "px-4 py-2 rounded-xl text-sm font-bold bg-brand-600 text-white transition flex items-center";
+                tabAdmin.className = "px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition flex items-center";
+            } else {
+                viewData.classList.add('hidden');
+                viewAdmin.classList.remove('hidden');
+                tabAdmin.className = "px-4 py-2 rounded-xl text-sm font-bold bg-brand-600 text-white transition flex items-center";
+                tabData.className = "px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition flex items-center";
+            }
+        };
+
+        // Set today's date as default
+        document.getElementById('dispenseDate').valueAsDate = new Date();
+
+        // Toast notification helper
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+            
+            msgEl.textContent = message;
+            iconEl.className = type === 'success' 
+                ? 'fa-solid fa-circle-check text-emerald-400 text-lg' 
+                : 'fa-solid fa-circle-exclamation text-red-400 text-lg';
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3500);
+        }
+        window.showToast = showToast;
+
+        // Update UI based on logged in user state
+        function updateAuthUI() {
+            const loginSection = document.getElementById('auth-login-section');
+            const dashSection = document.getElementById('auth-dashboard-section');
+            const adminPanel = document.getElementById('admin-only-panel');
+            const nonAdminPanel = document.getElementById('non-admin-panel');
+            const userEmailSpan = document.getElementById('current-user-email');
+            const loginWarning = document.getElementById('login-warning-banner');
+            const submitBtn = document.getElementById('submit-btn');
+
+            if (currentUser) {
+                loginSection.classList.add('hidden');
+                dashSection.classList.remove('hidden');
+                loginWarning.classList.add('hidden');
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                document.getElementById('profile-email').textContent = currentUser.email;
+                userEmailSpan.textContent = currentUser.name ? `${currentUser.name} (${currentUser.email})` : currentUser.email;
+
+                const isAdmin = currentUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+                if (isAdmin) {
+                    adminPanel.classList.remove('hidden');
+                    nonAdminPanel.classList.add('hidden');
+                    document.getElementById('profile-role-badge').textContent = "مدير النظام (Admin)";
+                    document.getElementById('profile-role-badge').className = "text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700";
+                    document.getElementById('profile-desc').textContent = "لديك صلاحية كاملة لإضافة وإدارة مستخدمي إدخال البيانات.";
+                    loadAuthorizedUsers();
+                } else {
+                    adminPanel.classList.add('hidden');
+                    nonAdminPanel.classList.remove('hidden');
+                    document.getElementById('profile-role-badge').textContent = "مستخدم إدخال بيانات";
+                    document.getElementById('profile-role-badge').className = "text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700";
+                    document.getElementById('profile-desc').textContent = "مصرح لك بإدخال وتصدير سجلات صرف الوقود.";
+                }
+            } else {
+                loginSection.classList.remove('hidden');
+                dashSection.classList.add('hidden');
+                loginWarning.classList.remove('hidden');
+                userEmailSpan.textContent = "غير مسجل الدخول";
+            }
+        }
+
+        // Login Handler (Supports Admin credentials directly + Firestore authorized users)
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value.trim().toLowerCase();
+            const password = document.getElementById('login-password').value;
+            const btn = document.getElementById('login-btn');
+
+            btn.disabled = true;
+            btn.textContent = "جاري التحقق...";
+
+            try {
+                // 1. Check if Admin
+                if (email === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASS) {
+                    currentUser = {
+                        email: ADMIN_EMAIL,
+                        name: "د. صفاء (Admin)",
+                        role: "admin"
+                    };
+                    localStorage.setItem('fuel_active_user', JSON.stringify(currentUser));
+                    updateAuthUI();
+                    showToast('مرحباً بك يا د. صفاء! تم تسجيل الدخول كأدمن');
+                    document.getElementById('login-form').reset();
+                    return;
+                }
+
+                // 2. Check Authorized Users in Firestore (and localStorage fallback)
+                let foundUser = null;
+                try {
+                    const q = query(collection(db, "authorized_users"), where("email", "==", email));
+                    const snap = await getDocs(q);
+                    snap.forEach(d => {
+                        const data = d.data();
+                        if (data.password === password) {
+                            foundUser = { id: d.id, ...data };
+                        }
+                    });
+                } catch (err) {
+                    console.warn("Firestore user query fallback:", err);
+                }
+
+                if (!foundUser) {
+                    const localUsers = JSON.parse(localStorage.getItem('authorized_users_db') || '[]');
+                    foundUser = localUsers.find(u => u.email.toLowerCase() === email && u.password === password);
+                }
+
+                if (foundUser) {
+                    currentUser = {
+                        email: foundUser.email,
+                        name: foundUser.name,
+                        role: "data_entry"
+                    };
+                    localStorage.setItem('fuel_active_user', JSON.stringify(currentUser));
+                    updateAuthUI();
+                    showToast(`أهلاً بك ${foundUser.name}! تم تسجيل الدخول بنجاح`);
+                    document.getElementById('login-form').reset();
+                } else {
+                    showToast('البريد الإلكتروني أو كلمة المرور غير صحيحة', 'error');
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "دخول";
+            }
+        });
+
+        // Logout Handler
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            currentUser = null;
+            localStorage.removeItem('fuel_active_user');
+            updateAuthUI();
+            showToast('تم تسجيل الخروج بنجاح');
+        });
+
+        // Admin Create New User Handler
+        document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser || currentUser.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+                showToast('غير مصرح لك بهذا الإجراء! الأدمن فقط يمكنه إضافة مستخدمين', 'error');
+                return;
+            }
+
+            const name = document.getElementById('new-user-name').value.trim();
+            const email = document.getElementById('new-user-email').value.trim().toLowerCase();
+            const password = document.getElementById('new-user-password').value;
+            const btn = document.getElementById('create-user-btn');
+
+            if (email === ADMIN_EMAIL.toLowerCase()) {
+                showToast('هذا البريد الإلكتروني مسجل للأدمن الرئيسي بالفعل', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin ml-2"></i>جاري إنشاء الحساب...';
+
+            const newUserObj = {
+                name: name,
+                email: email,
+                password: password,
+                role: "data_entry",
+                createdBy: ADMIN_EMAIL,
+                createdAt: new Date().toISOString()
+            };
+
+            try {
+                await addDoc(collection(db, "authorized_users"), newUserObj);
+                // Also sync to local fallback
+                const localUsers = JSON.parse(localStorage.getItem('authorized_users_db') || '[]');
+                localUsers.push(newUserObj);
+                localStorage.setItem('authorized_users_db', JSON.stringify(localUsers));
+
+                showToast(`تم إضافة المستخدم (${name}) بنجاح!`);
+                document.getElementById('create-user-form').reset();
+                loadAuthorizedUsers();
+            } catch (error) {
+                console.error("Create user error:", error);
+                const localUsers = JSON.parse(localStorage.getItem('authorized_users_db') || '[]');
+                localUsers.push(newUserObj);
+                localStorage.setItem('authorized_users_db', JSON.stringify(localUsers));
+                showToast(`تم إضافة المستخدم (${name}) محلياً!`);
+                document.getElementById('create-user-form').reset();
+                loadAuthorizedUsers();
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-plus ml-2"></i>إنشاء حساب المستخدم';
+            }
+        });
+
+        // Delete User (Admin only)
+        window.deleteAuthorizedUser = async function(docId, userEmail) {
+            if (!currentUser || currentUser.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) return;
+            try {
+                if (docId) {
+                    await deleteDoc(doc(db, "authorized_users", docId));
+                }
+                let localUsers = JSON.parse(localStorage.getItem('authorized_users_db') || '[]');
+                localUsers = localUsers.filter(u => u.email !== userEmail);
+                localStorage.setItem('authorized_users_db', JSON.stringify(localUsers));
+                showToast('تم حذف المستخدم بنجاح');
+                loadAuthorizedUsers();
+            } catch (e) {
+                console.error(e);
+                showToast('حدث خطأ أثناء الحذف', 'error');
+            }
+        };
+
+        // Load Authorized Users List (For Admin)
+        async function loadAuthorizedUsers() {
+            const container = document.getElementById('users-list-container');
+            container.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">جاري التحميل...</p>';
+            authorizedUsers = [];
+
+            try {
+                const snap = await getDocs(collection(db, "authorized_users"));
+                snap.forEach(d => authorizedUsers.push({ id: d.id, ...d.data() }));
+            } catch (err) {
+                console.warn("Loading users from localStorage fallback");
+                authorizedUsers = JSON.parse(localStorage.getItem('authorized_users_db') || '[]');
+            }
+
+            if (authorizedUsers.length === 0) {
+                container.innerHTML = '<p class="text-xs text-gray-400 text-center py-6">لم يتم إضافة مستخدمين بعد.</p>';
+                return;
+            }
+
+            container.innerHTML = '';
+            authorizedUsers.forEach(u => {
+                const div = document.createElement('div');
+                div.className = "p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between";
+                div.innerHTML = `
+                    <div>
+                        <p class="text-xs font-bold text-gray-900">${u.name}</p>
+                        <p class="text-xs text-gray-500" dir="ltr">${u.email}</p>
+                    </div>
+                    <div class="flex items-center space-x-2 space-x-reverse">
+                        <span class="text-[11px] bg-emerald-100 text-emerald-700 font-bold px-2 py-1 rounded-lg">مدخل بيانات</span>
+                        <button onclick="deleteAuthorizedUser('${u.id || ''}', '${u.email}')" title="حذف المستخدم" class="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition">
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Fetch Fuel Records
+        async function loadRecords() {
+            fuelRecords = [];
+            try {
+                const q = query(collection(db, "fuel_records"), orderBy("dispenseDate", "desc"));
+                const querySnapshot = await getDocs(q);
+                querySnapshot.forEach((doc) => {
+                    fuelRecords.push({ id: doc.id, ...doc.data() });
+                });
+            } catch (e) {
+                console.error("Error loading from Firestore:", e);
+                const localData = localStorage.getItem('fuel_records_db');
+                if (localData) fuelRecords = JSON.parse(localData);
+            }
+            renderTable(fuelRecords);
+            updateStats(fuelRecords);
+        }
+
+        // Render Table Data
+        function renderTable(records) {
+            const tbody = document.getElementById('fuel-table-body');
+            const emptyState = document.getElementById('empty-state');
+            tbody.innerHTML = '';
+
+            if (records.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            records.forEach((rec) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50/80 transition';
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-bold text-gray-900">${rec.plateNumber}</td>
+                    <td class="py-3 px-4 text-gray-600">${rec.dispenseDate}</td>
+                    <td class="py-3 px-4 font-semibold text-emerald-600">${Number(rec.quantityLiters).toLocaleString('en-US', {minimumFractionDigits: 2})} لتر</td>
+                    <td class="py-3 px-4 text-gray-600">${rec.stationCode}</td>
+                    <td class="py-3 px-4 text-gray-600">${rec.engineeringDept}</td>
+                    <td class="py-3 px-4 text-gray-800 font-medium">${rec.driverName}</td>
+                    <td class="py-3 px-4 text-xs text-gray-500">${rec.enteredBy || 'غير محدد'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Update Stats (also shares the full record list with the Excel export)
+        function updateStats(records) {
+            window.__allRecords = records;
+            document.getElementById('total-records').textContent = records.length;
+            const totalLiters = records.reduce((sum, rec) => sum + Number(rec.quantityLiters || 0), 0);
+            document.getElementById('total-liters').textContent = totalLiters.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        // Form Submit Handler (Explicit Save Button)
+        document.getElementById('fuel-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                showToast('يجب تسجيل الدخول أولاً من صفحة الإدارة والمستخدمين لحفظ البيانات!', 'error');
+                switchTab('admin');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin ml-2"></i>جاري الحفظ...';
+
+            const newRecord = {
+                plateNumber: document.getElementById('plateNumber').value.trim(),
+                dispenseDate: document.getElementById('dispenseDate').value,
+                quantityLiters: parseFloat(document.getElementById('quantityLiters').value),
+                stationCode: document.getElementById('stationCode').value.trim(),
+                engineeringDept: document.getElementById('engineeringDept').value.trim(),
+                driverName: document.getElementById('driverName').value.trim(),
+                enteredBy: currentUser.name ? `${currentUser.name} (${currentUser.email})` : currentUser.email,
+                createdAt: new Date().toISOString()
+            };
+
+            try {
+                await addDoc(collection(db, "fuel_records"), newRecord);
+                showToast('تم حفظ بيانات الصرف بنجاح!');
+                document.getElementById('fuel-form').reset();
+                document.getElementById('dispenseDate').valueAsDate = new Date();
+                await loadRecords();
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                fuelRecords.unshift(newRecord);
+                localStorage.setItem('fuel_records_db', JSON.stringify(fuelRecords));
+                renderTable(fuelRecords);
+                updateStats(fuelRecords);
+                showToast('تم حفظ البيانات بنجاح!', 'success');
+                document.getElementById('fuel-form').reset();
+                document.getElementById('dispenseDate').valueAsDate = new Date();
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-floppy-disk ml-2"></i>حفظ البيانات في السجل';
+            }
+        });
+
+        // Search Filter
+        document.getElementById('search-input').addEventListener('input', function(e) {
+            const term = e.target.value.toLowerCase();
+            const filtered = fuelRecords.filter(rec => 
+                String(rec.plateNumber || '').toLowerCase().includes(term) ||
+                String(rec.stationCode || '').toLowerCase().includes(term) ||
+                String(rec.driverName || '').toLowerCase().includes(term) ||
+                String(rec.engineeringDept || '').toLowerCase().includes(term)
+            );
+            renderTable(filtered);
+        });
+
+        // Initial setup
+        updateAuthUI();
+        loadRecords();
+    </script>
+</body>
+</html>
